@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateProjection, validateScenario, SAMPLE_SCENARIOS } from '../domain';
+import { blockingMessage, calculateProjection, hintMessage, validateScenario, SAMPLE_SCENARIOS } from '../domain';
 
 describe('scenario domain', () => {
   it('calculates monthly contributions and inflation-adjusted value', () => {
@@ -20,5 +20,17 @@ describe('scenario domain', () => {
     const scenario = { ...SAMPLE_SCENARIOS[0], principal: 0, recurring: 0 };
     expect(validateScenario(scenario)).toEqual({});
     expect(calculateProjection(scenario).finalValue).toBe(0);
+  });
+
+  it('uses different wording for typing hints and blocking errors around the same rule', () => {
+    const rule = validateScenario({ ...SAMPLE_SCENARIOS[0], years: 99 }).years;
+    expect(rule).toBeTruthy();
+    const hint = hintMessage(rule!);
+    const blocking = blockingMessage(rule!);
+    expect(hint).not.toBe(blocking);
+    expect(hint).toContain('提示');
+    expect(blocking).toContain('请修正');
+    expect(hint).toContain(rule!);
+    expect(blocking).toContain(rule!);
   });
 });

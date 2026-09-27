@@ -50,3 +50,13 @@ export function formatMoney(value: number): string {
 export function fieldLabel(field: ScenarioField): string {
   return { principal: '初始金额', recurring: '每月投入', years: '投资年限', annualRate: '年化收益', inflationRate: '通胀率', feeRate: '费用率' }[field];
 }
+
+/** 编辑过程中的轻量提示措辞：只提醒、不拦截，继续输入即可 */
+export function hintMessage(rule: string): string {
+  return `提示：${rule}（输入中，暂不拦截）`;
+}
+
+/** 失焦或保存前的拦截措辞：必须修正后才能保存 */
+export function blockingMessage(rule: string): string {
+  return `请修正：${rule}`;
+}
