@@ -35,6 +35,16 @@ export interface ScenarioProjection {
 
 export type ValidationErrors = Partial<Record<ScenarioField, string>>;
 
+// 记录每个字段是否已经失焦确认过（失焦后才允许完整拦截、标红）。
+export type TouchedFields = Partial<Record<ScenarioField, boolean>>;
+
+export interface ValidationIssue {
+  scenarioId: string;
+  scenarioName: string;
+  field: ScenarioField;
+  message: string;
+}
+
 export interface PersistedWorkspace {
   version: 1;
   scenarios: FinanceScenario[];

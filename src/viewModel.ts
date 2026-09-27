@@ -1,6 +1,6 @@
-import { calculateProjection, COLORS, SAMPLE_SCENARIOS, validateScenario } from './domain';
+import { calculateProjection, COLORS, fieldInputId, SAMPLE_SCENARIOS, validateScenario } from './domain';
 import type { ScenarioRepository } from './repository';
-import type { FinanceScenario, PersistedWorkspace, ScenarioField, ScenarioProjection, ValidationErrors } from './types';
+import type { FinanceScenario, PersistedWorkspace, ScenarioField, ScenarioProjection, TouchedFields, ValidationErrors } from './types';
 
 export type ViewStatus = 'loading' | 'ready' | 'editing' | 'error' | 'completed';
 
@@ -9,6 +9,8 @@ export interface MoneyScenarioState {
   scenarios: FinanceScenario[];
   selectedId: string;
   errors: Record<string, ValidationErrors>;
+  touched: Record<string, TouchedFields>;
+  showErrorSummary: boolean;
   projections: ScenarioProjection[];
   message: string;
 }
@@ -16,7 +18,7 @@ export interface MoneyScenarioState {
 type Listener = (state: MoneyScenarioState) => void;
 
 function initialState(): MoneyScenarioState {
-  return { status: 'loading', scenarios: [], selectedId: '', errors: {}, projections: [], message: '正在恢复最近的情景…' };
+  return { status: 'loading', scenarios: [], selectedId: '', errors: {}, touched: {}, showErrorSummary: false, projections: [], message: '正在恢复最近的情景…' };
 }
 
 export class MoneyScenarioViewModel {
@@ -50,7 +52,22 @@ export class MoneyScenarioViewModel {
 
   updateField(id: string, field: ScenarioField, value: number): void {
     const scenarios = this.state.scenarios.map((scenario) => scenario.id === id ? { ...scenario, [field]: value } : scenario);
+    // 输入中只做实时推演，错误面板保持打开（若之前保存被拦），字段级拦截交给失焦确认。
     this.applyScenarios(scenarios, id, '参数已更新，结果实时刷新');
+  }
+
+  blurField(id: string, field: ScenarioField): void {
+    const touched = { ...this.state.touched, [id]: { ...this.state.touched[id], [field]: true } };
+    this.setState({ touched, status: Object.keys(this.state.errors).length ? 'editing' : 'ready' });
+  }
+
+  focusField(id: string, field: ScenarioField): void {
+    if (typeof document === 'undefined') return;
+    document.getElementById(fieldInputId(id, field))?.focus();
+  }
+
+  closeErrorSummary(): void {
+    this.setState({ showErrorSummary: false });
   }
 
   renameScenario(id: string, name: string): void {
@@ -88,14 +105,21 @@ export class MoneyScenarioViewModel {
   }
 
   async save(): Promise<void> {
+    // 保存前使用与失焦后完全相同的完整口径重新校验，错误一项不放松。
     if (Object.keys(this.state.errors).length > 0) {
-      this.setState({ status: 'error', message: '请先修正标红参数，再保存比较' });
+      const issueCount = Object.values(this.state.errors).reduce((sum, entry) => sum + Object.keys(entry).length, 0);
+      this.setState({
+        touched: this.allTouched(),
+        showErrorSummary: true,
+        status: 'error',
+        message: `保存被拦截：还有 ${issueCount} 项参数未通过校验，请按错误清单逐项修正后再保存`,
+      });
       return;
     }
     const workspace: PersistedWorkspace = { version: 1, scenarios: this.state.scenarios, selectedId: this.state.selectedId };
     try {
       await this.repository.save(workspace);
-      this.setState({ status: 'completed', message: '比较已保存，本地刷新后仍可继续编辑' });
+      this.setState({ showErrorSummary: false, status: 'completed', message: '比较已保存，本地刷新后仍可继续编辑' });
     } catch {
       this.setState({ status: 'error', message: '保存失败，请检查浏览器本地存储权限' });
     }
@@ -109,7 +133,31 @@ export class MoneyScenarioViewModel {
       if (Object.keys(scenarioErrors).length) errors[scenario.id] = scenarioErrors;
       else projections.push(calculateProjection(scenario));
     });
-    this.setState({ scenarios, selectedId, errors, projections, status: Object.keys(errors).length ? 'editing' : 'ready', message });
+    // 清理已删除情景的失焦记录，避免 id 复用时残留状态。
+    const touched: Record<string, TouchedFields> = {};
+    Object.keys(this.state.touched).forEach((id) => {
+      if (scenarios.some((scenario) => scenario.id === id)) touched[id] = this.state.touched[id];
+    });
+    this.setState({
+      scenarios,
+      selectedId,
+      errors,
+      touched,
+      showErrorSummary: this.state.showErrorSummary && Object.keys(errors).length > 0,
+      projections,
+      status: Object.keys(errors).length ? 'editing' : 'ready',
+      message,
+    });
+  }
+
+  // 保存被拦时把全部字段视为已确认，让红色错误直接落到每个出错的输入框上。
+  private allTouched(): Record<string, TouchedFields> {
+    const touched: Record<string, TouchedFields> = {};
+    Object.keys(this.state.errors).forEach((id) => {
+      touched[id] = { ...this.state.touched[id] };
+      Object.keys(this.state.errors[id]).forEach((field) => { touched[id][field as ScenarioField] = true; });
+    });
+    return touched;
   }
 
   private setState(patch: Partial<MoneyScenarioState>): void {
